@@ -4,17 +4,21 @@
 // Standard library includes
 #include <iostream>
 #include <signal.h>
+#include <thread>
 
 // Local includes
 #include "config.h"
 
 // Function declarations
 void handleSigInt(int a);
+void processMavLink();
 
-// Global connections
+// Global variables (sorry-not-sorry)
 boost::asio::io_service io;
 boost::asio::serial_port serialPort( io);
 boost::asio::ip::udp::socket udpSocket( io);
+std::thread mavlinkThread;
+char buf[300];
 
 int main(int argc, char **argv)
 {
@@ -36,6 +40,7 @@ int main(int argc, char **argv)
     std::cerr << "\033[1;31m"
               << "Port ACM0 not available. Check that the Arduino is connected.\n"
               << "\033[0m";
+    return 1;
   }
 
   // Bind to a UDP port to receive MAVLink packets
@@ -47,9 +52,16 @@ int main(int argc, char **argv)
     std::cerr << "\033[1;31m"
               << "Port " << config.udpPort << " not available.\n"
               << "\033[0m";
+    return 1;
   }
 
-  // Release the serial port
+  // Start the MAVLink read thread
+  mavlinkThread = std::thread( processMavLink);
+
+  // Clean up
+  if ( mavlinkThread.joinable()) {
+    mavlinkThread.join();
+  }
   serialPort.close();
   udpSocket.close();
   return 0;
@@ -57,9 +69,22 @@ int main(int argc, char **argv)
 
 void handleSigInt(int a)
 {
-  // Release the ports on SIGINT
+  // Release the ports on SIGINT and rejoin read thread
   std::cerr << "Releasing serial and UDP ports.\n";
+  if ( mavlinkThread.joinable()) {
+    mavlinkThread.join();
+  }
   serialPort.close();
   udpSocket.close();
   exit(1);
+}
+
+void processMavLink()
+{
+  while (1) {
+    if ( udpSocket.available()) {
+      udpSocket.receive( boost::asio::buffer( buf));
+      std::cout << buf[0] << "\n";
+    }
+  }
 }

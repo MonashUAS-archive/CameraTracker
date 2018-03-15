@@ -1,0 +1,3 @@
+/home/oliver/git/CameraTracker/src/CMakeFiles/edit_cache.dir
+/home/oliver/git/CameraTracker/src/CMakeFiles/rebuild_cache.dir
+/home/oliver/git/CameraTracker/src/CMakeFiles/CameraTracker.dir

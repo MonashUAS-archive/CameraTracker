@@ -1,0 +1,1 @@
+/usr/lib/ccache/c++    -std=c++11 -ggdb -pthread   CMakeFiles/CameraTracker.dir/Config.cpp.o CMakeFiles/CameraTracker.dir/config.cpp.o CMakeFiles/CameraTracker.dir/main.cpp.o  -o CameraTracker -rdynamic -lboost_program_options -lboost_system 

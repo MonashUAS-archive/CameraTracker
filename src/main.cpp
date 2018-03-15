@@ -5,9 +5,14 @@
 #include <iostream>
 #include <signal.h>
 #include <thread>
+#include <math.h>
+
+// MAVLink include
+#include "../include/c_library_v2/common/mavlink.h"
 
 // Local includes
 #include "config.h"
+#include "aircraft.h"
 
 // Function declarations
 void handleSigInt(int a);
@@ -18,7 +23,9 @@ boost::asio::io_service io;
 boost::asio::serial_port serialPort( io);
 boost::asio::ip::udp::socket udpSocket( io);
 std::thread mavlinkThread;
+bool sigIntCaught = false;
 char buf[300];
+Aircraft aircraft;
 
 int main(int argc, char **argv)
 {
@@ -58,10 +65,10 @@ int main(int argc, char **argv)
   // Start the MAVLink read thread
   mavlinkThread = std::thread( processMavLink);
 
+  // Calculate the required inclination and azimuth angles
+  
+
   // Clean up
-  if ( mavlinkThread.joinable()) {
-    mavlinkThread.join();
-  }
   serialPort.close();
   udpSocket.close();
   return 0;
@@ -71,9 +78,7 @@ void handleSigInt(int a)
 {
   // Release the ports on SIGINT and rejoin read thread
   std::cerr << "Releasing serial and UDP ports.\n";
-  if ( mavlinkThread.joinable()) {
-    mavlinkThread.join();
-  }
+  sigIntCaught = true;
   serialPort.close();
   udpSocket.close();
   exit(1);
@@ -81,10 +86,28 @@ void handleSigInt(int a)
 
 void processMavLink()
 {
-  while (1) {
+  while ( !sigIntCaught) {
     if ( udpSocket.available()) {
       udpSocket.receive( boost::asio::buffer( buf));
-      std::cout << buf[0] << "\n";
+
+      mavlink_message_t msg;
+      mavlink_status_t status;
+      for (char c : buf) {
+        if ( mavlink_parse_char( 1, c, &msg, &status)) {
+          break;
+        }
+      }
+      // Global position int message
+      if ( msg.msgid == 33) {
+        mavlink_global_position_int_t globalPosition;
+        mavlink_msg_global_position_int_decode( &msg, &globalPosition);
+        aircraft.latitude =      globalPosition.lat / 1.0e7 * M_PI / 180;
+        aircraft.longitude =     globalPosition.lon / 1.0e7 * M_PI / 180;
+        aircraft.altitude =      globalPosition.alt / 1.0e3;
+        aircraft.velocityBodyX = globalPosition.vx / 1.0e2;
+        aircraft.velocityBodyY = globalPosition.vy / 1.0e2;
+        aircraft.velocityBodyZ = globalPosition.vz / 1.0e2;
+      }
     }
   }
 }

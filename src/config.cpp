@@ -38,15 +38,15 @@ void Config::assignVariable( std::string &var, std::string &val)
     serialPort = val;
   }
   else if ( var.compare("latitude") == 0) {
-    latitude = std::stod( val);
+    latitude = std::stod( val) * M_PI/180;
   }
   else if ( var.compare("longitude") == 0) {
-    longitude = std::stod( val);
+    longitude = std::stod( val) * M_PI/180;
   }
   else if ( var.compare("altitude_AMSL") == 0) {
     altitudeAmsl = std::stod( val);
   }
   else if ( var.compare("magnetic_declination") == 0) {
-    magneticDeclination = std::stod( val);
+    magneticDeclination = std::stod( val) * M_PI/180;
   }
 }

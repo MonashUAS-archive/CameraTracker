@@ -6,9 +6,13 @@
 #include <signal.h>
 #include <thread>
 #include <math.h>
+#include <iomanip>
 
 // MAVLink include
 #include "../include/c_library_v2/common/mavlink.h"
+
+// Armadillo include
+#include <armadillo>
 
 // Local includes
 #include "config.h"
@@ -17,6 +21,7 @@
 // Function declarations
 void handleSigInt(int a);
 void processMavLink();
+void sendArduinoData( double &inclination, double &azimuth);
 
 // Global variables (sorry-not-sorry)
 boost::asio::io_service io;
@@ -41,11 +46,11 @@ int main(int argc, char **argv)
 
   // Bind to the Arduino's serial port
   try {
-    // serialPort.open( "ACM0");
+    serialPort.open( "/dev/" + config.serialPort);
   }
   catch (...) {
     std::cerr << "\033[1;31m"
-              << "Port ACM0 not available. Check that the Arduino is connected.\n"
+              << "Port " << config.serialPort << " not available. Check that the Arduino is connected.\n"
               << "\033[0m";
     return 1;
   }
@@ -65,8 +70,46 @@ int main(int argc, char **argv)
   // Start the MAVLink read thread
   mavlinkThread = std::thread( processMavLink);
 
-  // Calculate the required inclination and azimuth angles
-  
+  //// Calculate the required inclination and azimuth angles
+  while ( true) {
+    // Constants
+    const double a = 6378137.0;
+    const double f = 1/298.257223563;
+    const double b = a*(1-f);
+
+    // Camera position
+    const double cameraN = a*a / ( sqrt( pow( a*cos( config.latitude), 2) + pow( b*sin( config.latitude), 2)));
+    const arma::vec3 sC_G( {( cameraN + config.altitudeAmsl) * cos( config.latitude) * cos( config.longitude),
+                            ( cameraN + config.altitudeAmsl) * cos( config.latitude) * sin( config.longitude),
+                            ( cameraN*pow( 1-f, 2) + config.altitudeAmsl) * sin( config.latitude)});
+
+    // Aircraft position
+    double aircraftN = a*a / ( sqrt( pow( a*cos( aircraft.latitude), 2) + pow( b*sin( aircraft.latitude), 2)));
+    arma::vec3 sP_G( {( aircraftN + aircraft.altitude) * cos( aircraft.latitude) * cos( aircraft.longitude),
+                      ( aircraftN + aircraft.altitude) * cos( aircraft.latitude) * sin( aircraft.longitude),
+                      ( aircraftN*pow( 1-f, 2) + aircraft.altitude) * sin( aircraft.latitude)});
+
+    // Transform to geographic coordinates
+    const arma::mat33 T_gG( {{-sin( config.latitude)*cos( config.longitude), -sin( config.latitude)*sin(config.longitude), cos( config.longitude)},
+                             {-sin( config.longitude), cos( config.longitude), 0},
+                             {-cos( config.latitude)*cos( config.longitude), -cos( config.latitude)*sin(config.longitude), -sin( config.latitude)}});
+    arma::vec3 sPC_g = T_gG * ( sP_G - sC_G);
+    if ( config.latitude < 0) {
+      // sPC_g[0] *= -1;
+    }
+
+    // std::cout << sPC_g << "\n";
+    // std::cout << config.altitudeAmsl << "  " << aircraft.altitude << "\n";
+
+    // Calculate angles in degrees
+    double inclination = 180/M_PI * atan2( -sPC_g[2], sqrt( sPC_g[0]*sPC_g[0] + sPC_g[1]*sPC_g[1]));
+    double azimuth = 180/M_PI * ( atan2( sPC_g[1], sPC_g[0]));
+    std::cout << inclination << "  " << azimuth << std::endl;
+    usleep(1e6/10);
+
+    // Send data to the Arduino
+    sendArduinoData( inclination, azimuth);
+  }
 
   // Clean up
   serialPort.close();
@@ -77,11 +120,12 @@ int main(int argc, char **argv)
 void handleSigInt(int a)
 {
   // Release the ports on SIGINT and rejoin read thread
-  std::cerr << "Releasing serial and UDP ports.\n";
+  std::cerr << "\nReleasing serial and UDP ports.\n";
   sigIntCaught = true;
   serialPort.close();
   udpSocket.close();
-  exit(1);
+  // Quick exit to play nice with multithreading
+  quick_exit(0);
 }
 
 void processMavLink()
@@ -109,5 +153,21 @@ void processMavLink()
         aircraft.velocityBodyZ = globalPosition.vz / 1.0e2;
       }
     }
+    usleep(10e3); // 10 ms sleep to not overload the thread
+  }
+}
+
+void sendArduinoData( double &inclination, double &azimuth)
+{
+  try {
+    std::string arduinoString = std::to_string( inclination) + " " + std::to_string( azimuth);
+    serialPort.write_some( boost::asio::buffer( arduinoString));
+  }
+  catch (...) {
+    // The write operation failed - end the program
+    std::cerr << "\033[1;31m"
+              << "Arduino no longer detected.\n"
+              << "\033[0m";
+    handleSigInt( 0);
   }
 }

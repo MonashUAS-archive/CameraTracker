@@ -28,8 +28,8 @@ VehiclePosition vehiclePosition;
 
 struct CameraPosition
 {
-  float lat = PI/180.0 * -35.363182; // geodetic latitude [rad]
-  float lon = PI/180.0 * 149.165234; // longitude [rad]
+  float lat = 0; // geodetic latitude [rad]
+  float lon = 0; // longitude [rad]
   float alt = 0; // altitude above mean sea level [m]
   Vector31 sC_G = {0,0,0}; 
 };
@@ -37,8 +37,8 @@ CameraPosition cameraPosition;
 
 struct CameraAngles
 {
-  float inclination;  // deg
-  float azimuth;      // deg
+  float inclination = 0;  // deg
+  float azimuth = 0;      // deg
 };
 CameraAngles cameraAngles;
 
@@ -56,7 +56,6 @@ void setup()
   
   // Setup serial
   Serial.begin( 115200);
-  
 
   // Setup SD card
   if ( !SD.begin( 4)) {
@@ -64,14 +63,14 @@ void setup()
   }
 
   // Un-comment this section if you want to read from the SD card
-  /*
+  
   while ( !Serial) {;}
   File f = SD.open( "angles.txt");
   while ( f.available()) {
     Serial.write( f.read());
   }
   f.close();
-  */
+  
   SD.remove( "angles.txt");
   
   // Initialise camera position
@@ -89,15 +88,15 @@ void loop()
   static mavlink_message_t msg;
   static mavlink_status_t stat;
   static mavlink_global_position_int_t global_position_int_t;
-  static char buf[512];
-  static int loopCount = 0;
+  static char buf[280];   // Maximum 280 bytes per MAVLink packet
+  static uint8_t loopCount = 0;
 
   // It's faster to read all in one go to clear the serial buffer
-  Serial.readBytes( buf, 512);
-  for ( char c : buf) {
+  Serial.readBytes( buf, 280);
+  for ( char &c : buf) {
     
     // Extract the MAVLink message
-    if ( mavlink_parse_char( 0, c, &msg, &stat)) {
+    if ( mavlink_parse_char( MAVLINK_COMM_0, c, &msg, &stat)) {
       // Global position message
       if ( msg.msgid == 33) {
         mavlink_msg_global_position_int_decode( &msg, &global_position_int_t);
@@ -114,9 +113,6 @@ void loop()
         // Calculate the relative position vector in geographic coordinates
         Vector31 sPC_g = computeRelativePosition_Geographic( vehiclePosition, cameraPosition);
 
-        // Use vehicle velocity to predict its position
-        extrapolatePosition( sPC_g, vehiclePosition);
-
         // Calculate the angles required to aim at the vehicle
         computeCameraAngles( cameraAngles, sPC_g);
 
@@ -125,7 +121,8 @@ void loop()
     }
   }
 
-  if ( loopCount++ % 10) {
+  // Log to SD card
+  if ( loopCount++ % 10 == 0) {
     File dataFile = SD.open( "angles.txt", FILE_WRITE);
     dataFile.print( millis()/1000.0);
     dataFile.print( " ");
